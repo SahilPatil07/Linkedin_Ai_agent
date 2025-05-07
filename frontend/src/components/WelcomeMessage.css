@@ -1,0 +1,38 @@
+.welcome-message {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: linear-gradient(135deg, #0077B5 0%, #00A0DC 100%);
+  color: white;
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  animation: slideIn 0.5s ease-out;
+}
+
+.welcome-content {
+  max-width: 300px;
+}
+
+.welcome-content h2 {
+  margin: 0 0 10px 0;
+  font-size: 1.5rem;
+}
+
+.welcome-content p {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
