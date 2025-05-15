@@ -24,7 +24,7 @@ for key, value in os.environ.items():
 class Config:
     # API Configuration
     GROQ_API_KEY = os.getenv("GROQ_API_KEY", "default_groq_key")
-    GROQ_MODEL = "llama-3.1-8b-instant"
+    GROQ_MODEL = "llama-3.3-70b-versatile"
     GROQ_API_BASE = "https://api.groq.com/openai/v1"
     
     # Server Configuration
@@ -35,12 +35,16 @@ class Config:
     LINKEDIN_CLIENT_ID = os.getenv("LINKEDIN_CLIENT_ID", "77j64kcvcgqstb")
     LINKEDIN_CLIENT_SECRET = os.getenv("LINKEDIN_CLIENT_SECRET", "WPL_AP1.w9OSjBKRDmIAnPo6.paMm0Q==")
     
-    # CORS Configuration
+    # CORS Configuration - Updated to include all necessary origins
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",
         "http://localhost:5000",
+        "http://localhost:5173",  # Vite default port
         "http://127.0.0.1:3000",
-        "http://127.0.0.1:5000"
+        "http://127.0.0.1:5000",
+        "http://127.0.0.1:5173",  # Vite default port
+        "http://localhost:8000",
+        "http://127.0.0.1:8000"
     ]
     
     # LLM Configuration

@@ -1,99 +1,134 @@
+from pydantic_settings import BaseSettings
+from typing import List, Optional, Tuple, Dict, Union
 import os
 from pathlib import Path
-from typing import List, Optional, Annotated
-from pydantic_settings import BaseSettings
-from pydantic import validator, StringConstraints
 import logging
-import re
+from dotenv import load_dotenv
+import httpx
+from pydantic import AnyHttpUrl, validator
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
-class Config(BaseSettings):
-    """Application configuration."""
-    
-    # API Keys
-    GROQ_API_KEY: str = ""
-    LINKEDIN_ACCESS_TOKEN: str = ""
-    
-    # Application Settings
-    DEBUG: bool = False
-    APP_NAME: str = "LinkedIn Post Generator"
+# Load environment variables
+load_dotenv()
+
+class Settings(BaseSettings):
+    # Project Info
+    PROJECT_NAME: str = "LinkedIn Post Generator"
+    PROJECT_VERSION: str = "1.0.0"
+    DEBUG: bool = True
     API_V1_STR: str = "/api/v1"
-    CORS_ORIGINS: List[str] = ["http://localhost:5173"]  # Frontend URL
-    
-    # LinkedIn Settings
-    LINKEDIN_ORGANIZATION_URN: Annotated[str, StringConstraints(pattern=r'^urn:li:organization:\d+$')] = "urn:li:organization:107281847"
-    
-    @validator('LINKEDIN_ORGANIZATION_URN')
-    def validate_organization_urn(cls, v):
-        """Validate the LinkedIn organization URN format."""
-        if not re.match(r'^urn:li:organization:\d+$', v):
-            raise ValueError('Invalid LinkedIn organization URN format. Must be in format: urn:li:organization:ID')
-        return v
-    
-    # Groq API Settings
-    GROQ_MODEL: str = "llama3-70b-8192"  # Using Mixtral model
-    GROQ_API_BASE: str = "https://api.groq.com/openai/v1"  # Correct Groq API endpoint
-    
-    # API Settings
-    TIMEOUT: int = 60
-    MAX_RETRIES: int = 3
+    PORT: int = 8000
+    HOST: str = "0.0.0.0"
+
+    # CORS
+    BACKEND_CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000"]
+    ALLOWED_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000"]
+
+    @validator("BACKEND_CORS_ORIGINS", pre=True)
+    def assemble_cors_origins(cls, v: Union[str, List[str]]) -> Union[List[str], str]:
+        if isinstance(v, str) and not v.startswith("["):
+            return [i.strip() for i in v.split(",")]
+        elif isinstance(v, (list, str)):
+            return v
+        raise ValueError(v)
+
+    # Database
+    DATABASE_URL: str = "sqlite:///./app.db"
+
+    # Security
+    SECRET_KEY: str = "your-secret-key-here"  # Change this in production
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8  # 8 days
+    ALGORITHM: str = "HS256"
+
+    # LinkedIn API
+    LINKEDIN_API_URL: str = "https://api.linkedin.com/v2"
+    LINKEDIN_CLIENT_ID: str = os.getenv("LINKEDIN_CLIENT_ID", "")
+    LINKEDIN_CLIENT_SECRET: str = os.getenv("LINKEDIN_CLIENT_SECRET", "")
+    LINKEDIN_REDIRECT_URI: str = os.getenv("LINKEDIN_REDIRECT_URI", "")
+    LINKEDIN_USER_ID: Optional[str] = None
+    LINKEDIN_ACCESS_TOKEN: str = os.getenv("LINKEDIN_ACCESS_TOKEN", "")
+    LINKEDIN_REFRESH_TOKEN: str = os.getenv("LINKEDIN_REFRESH_TOKEN", "")
+    LINKEDIN_AUTH_URL: str = "https://www.linkedin.com/oauth/v2/authorization"
+    LINKEDIN_TOKEN_URL: str = "https://www.linkedin.com/oauth/v2/accessToken"
+    LINKEDIN_SCOPE: str = os.getenv("LINKEDIN_SCOPE", "w_member_social,r_organization_social")
+    LINKEDIN_ORGANIZATION_ID: str = os.getenv("LINKEDIN_ORGANIZATION_ID", "")
+
+    # Celery
+    CELERY_BROKER_URL: str = "redis://localhost:6379/0"
+    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/0"
+
+    # Groq API
+    GROQ_API_KEY: str = ""
+    GROQ_API_BASE: str = "https://api.groq.com/openai/v1"
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
     TEMPERATURE: float = 0.7
-    MAX_TOKENS: int = 4096
-    TOP_P: float = 0.95
+    MAX_TOKENS: int = 1000
+    TOP_P: float = 1.0
     FREQUENCY_PENALTY: float = 0.0
     PRESENCE_PENALTY: float = 0.0
-    
-    # LinkedIn Post Generation
-    LINKEDIN_POST_PROMPT: str = """
-    Create a professional LinkedIn post about {topic}. The post should be engaging and informative.
-    Format the response as a JSON object with the following structure:
-    {{
-        "posts": [
-            {{
-                "title": "Post Title",
-                "content": "Post content in Hinglish"
-            }}
-        ],
-        "should_post": true/false
-    }}
-    """
-    
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
-        extra = "allow"  # Allow extra fields in .env file
-        
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        
-        # Configure logging based on DEBUG setting
-        logging.basicConfig(
-            level=logging.DEBUG if self.DEBUG else logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        )
-        
-        # Log configuration state (excluding sensitive data)
-        logger.info("Configuration loaded:")
-        logger.info(f"DEBUG: {self.DEBUG}")
-        logger.info(f"APP_NAME: {self.APP_NAME}")
-        logger.info(f"GROQ_MODEL: {self.GROQ_MODEL}")
-        logger.info(f"GROQ_API_BASE: {self.GROQ_API_BASE}")
-        logger.info(f"TIMEOUT: {self.TIMEOUT}")
-        logger.info(f"MAX_RETRIES: {self.MAX_RETRIES}")
-        
-        # Log warnings for missing API keys
-        if not self.GROQ_API_KEY:
-            logger.warning("GROQ_API_KEY is not set")
-        if not self.LINKEDIN_ACCESS_TOKEN:
-            logger.warning("LINKEDIN_ACCESS_TOKEN is not set")
 
-# Create global config instance
-config = Config()
+    # Timeout
+    TIMEOUT: int = 30
+
+    # Post Generation
+    MAX_POSTS_PER_REQUEST: int = 5
+    MAX_SCHEDULED_POSTS: int = 10
+    POST_GENERATION_TIMEOUT: int = 30
+
+    # Frontend
+    FRONTEND_URL: str = "http://localhost:3000"
+
+    # OpenAI Settings
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+
+    class Config:
+        case_sensitive = True
+        env_file = ".env"
+        extra = "allow"  # Allow extra fields from .env file
+
+settings = Settings()
 
 # Log current configuration (excluding sensitive data)
 logger.debug(f"Current working directory: {Path.cwd()}")
 logger.debug(f".env file exists: {Path('.env').exists()}")
 logger.debug("Current environment variables:")
-logger.debug(f"GROQ_API_KEY: {'*' * 20 if config.GROQ_API_KEY else 'Not set'}")
-logger.debug(f"LINKEDIN_ACCESS_TOKEN: {'*' * 20 if config.LINKEDIN_ACCESS_TOKEN else 'Not set'}") 
+logger.debug(f"GROQ_API_KEY: {'*' * 20 if settings.GROQ_API_KEY else 'Not set'}")
+logger.debug(f"LINKEDIN_ACCESS_TOKEN: {'*' * 20 if settings.LINKEDIN_ACCESS_TOKEN else 'Not set'}")
+
+async def generate_posts(self, topic: str, chat_history: Optional[List[Dict[str, str]]] = None) -> Tuple[List[str], bool]:
+    if not settings.GROQ_API_KEY:
+        raise ValueError("GROQ_API_KEY is not set")
+
+    posts = []
+    for _ in range(settings.MAX_POSTS_PER_REQUEST):
+        async with httpx.AsyncClient(timeout=settings.TIMEOUT) as client:
+            response = await client.post(
+                f"{settings.GROQ_API_BASE}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {settings.GROQ_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": settings.GROQ_MODEL,
+                    "temperature": settings.TEMPERATURE,
+                    # ... other settings
+                }
+            )
+            if response.status_code == 200:
+                posts.append(response.json().get("choices", [{}])[0].get("message", {}).get("content", ""))
+            else:
+                logger.error(f"API call failed with status code: {response.status_code}")
+                return posts, False
+
+    posts = posts[:settings.MAX_POSTS_PER_REQUEST]
+    return posts, True 
+
+def __init__(self):
+    self.client = groq.Groq(api_key=settings.GROQ_API_KEY)
+    self.linkedin_service = LinkedInService()

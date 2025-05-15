@@ -1,63 +1,123 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
-from typing import List
+from fastapi.responses import JSONResponse
 from datetime import datetime
+import logging
+import time
+import signal
+from contextlib import asynccontextmanager
 
 from app.core.config import settings
-from app.db.session import engine, SessionLocal
-from app.db import models, schemas
+from app.api.endpoints import chat_router
 
-# Create database tables
-models.Base.metadata.create_all(bind=engine)
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('app.log')
+    ]
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title=settings.PROJECT_NAME,
-    version=settings.PROJECT_VERSION,
-    description="Hotel Management System API"
+    title="AI Chat API",
+    description="API for AI-powered chat interactions",
+    version="1.0.0",
+    openapi_url=f"{settings.API_V1_STR}/openapi.json"
 )
 
-# Configure CORS
+# Set up CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS,
+    allow_origins=["*"],  # Allow all origins in development
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # Allow all methods
+    allow_headers=["*"],  # Allow all headers
 )
 
-# Dependency to get database session
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-# Import and include routers
-from app.api.endpoints import (
-    tables,
-    menu,
-    orders,
-    billing,
-    analytics,
-    auth,
-    users
+# Include chat router with both paths to ensure compatibility
+app.include_router(
+    chat_router,
+    prefix=f"{settings.API_V1_STR}",
+    tags=["chat"]
 )
 
-# Include routers
-app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
-app.include_router(users.router, prefix="/api/users", tags=["Users"])
-app.include_router(tables.router, prefix="/api/tables", tags=["Tables"])
-app.include_router(menu.router, prefix="/api/menu", tags=["Menu"])
-app.include_router(orders.router, prefix="/api/orders", tags=["Orders"])
-app.include_router(billing.router, prefix="/api/billing", tags=["Billing"])
-app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
+# Add a second route for /chat to handle direct requests
+app.include_router(
+    chat_router,
+    prefix="",
+    tags=["chat"]
+)
 
+# Log all registered routes on startup
+@app.on_event("startup")
+async def startup_event():
+    logger.info("Application startup...")
+    logger.info("Registered routes:")
+    for route in app.routes:
+        logger.info(f"Route: {route.path} [{route.methods}]")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    logger.info("Starting up application...")
+    yield
+    # Shutdown
+    logger.info("Shutting down application...")
+
+# Middleware for request logging
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start_time = time.time()
+    response = await call_next(request)
+    process_time = time.time() - start_time
+    logger.info(f"Method: {request.method} Path: {request.url.path} Status: {response.status_code} Duration: {process_time:.2f}s")
+    return response
+
+# Root endpoint
 @app.get("/")
-def read_root():
-    return {"message": "Welcome to Hotel Management System API"}
+async def root():
+    return {
+        "message": "Welcome to AI Chat API",
+        "version": "1.0.0",
+        "docs": "/docs"
+    }
 
+# Health check endpoint
 @app.get("/health")
-def health_check():
-    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+async def health_check():
+    return {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat(),
+        "version": "1.0.0"
+    }
+
+# Error handlers
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail}
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"}
+    )
+
+# Signal handlers for graceful shutdown
+def handle_sigterm(*args):
+    logger.info("Received SIGTERM signal. Starting graceful shutdown...")
+    raise KeyboardInterrupt()
+
+def handle_sigint(*args):
+    logger.info("Received SIGINT signal. Starting graceful shutdown...")
+    raise KeyboardInterrupt()
+
+# Register signal handlers
+signal.signal(signal.SIGTERM, handle_sigterm)
+signal.signal(signal.SIGINT, handle_sigint)

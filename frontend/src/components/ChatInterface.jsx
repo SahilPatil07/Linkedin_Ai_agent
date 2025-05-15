@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import styled from 'styled-components';
 import { motion, AnimatePresence } from 'framer-motion';
-import { fetchChatResponse } from '../services/api';
+import { fetchChatResponse } from '../api/api';
 
 const ChatContainer = styled.div`
   display: flex;
@@ -129,16 +129,62 @@ const ErrorMessage = styled.div`
   text-align: center;
 `;
 
+const PostButton = styled(motion.button)`
+  padding: 0.5rem 1rem;
+  background: #0077b5;
+  color: white;
+  border: none;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-left: 0.5rem;
+  
+  &:hover {
+    background: #006399;
+  }
+  
+  &:disabled {
+    background: #a0a0a0;
+    cursor: not-allowed;
+  }
+`;
+
+const MessageActions = styled.div`
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+`;
+
+const LoginButton = styled(motion.button)`
+  padding: 0.75rem 1.5rem;
+  background: #0077b5;
+  color: white;
+  border: none;
+  border-radius: 0.5rem;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-left: 1rem;
+  
+  &:hover {
+    background: #006399;
+  }
+`;
+
 const ChatInterface = () => {
   const [messages, setMessages] = useState([
     {
-      text: "👋 Hi! I'm your LinkedIn content assistant. I can help you create engaging posts and manage your content strategy. What would you like to post about today?",
+      text: "👋 Hi! I'm your LinkedIn content assistant. Please login to LinkedIn to start posting.",
       isUser: false
     }
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -151,29 +197,30 @@ const ChatInterface = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!input.trim() || isLoading) return;
-
-    const userMessage = input.trim();
-    setInput('');
-    setError(null);
-    setMessages(prev => [...prev, { text: userMessage, isUser: true }]);
-    setIsLoading(true);
+    if (!input.trim()) return;
 
     try {
-      const response = await fetchChatResponse(userMessage, messages.map(msg => ({
-        role: msg.isUser ? 'user' : 'assistant',
-        content: msg.text
-      })));
+      setIsLoading(true);
+      setError(null);
 
-      const botResponse = response.response || 'Sorry, I could not generate a response.';
+      // Add user message to chat
+      const userMessage = { text: input.trim(), isUser: true };
+      setMessages(prev => [...prev, userMessage]);
+      setInput('');
+
+      // Get AI response
+      const response = await fetchChatResponse(input, messages);
       
-      setMessages(prev => [...prev, { text: botResponse, isUser: false }]);
-      
-      if (response.posts && response.posts.length > 0) {
-        response.posts.forEach(post => {
-          setMessages(prev => [...prev, { text: post, isUser: false }]);
-        });
+      // Add AI response to chat
+      if (response) {
+        setMessages(prev => [...prev, { 
+          text: response, 
+          isUser: false 
+        }]);
+      } else {
+        throw new Error('No response received from the AI');
       }
+
     } catch (error) {
       console.error('Error:', error);
       const errorMessage = error.message || 'Sorry, there was an error processing your message. Please try again.';
@@ -187,11 +234,64 @@ const ChatInterface = () => {
     }
   };
 
+  const handlePostToLinkedIn = async (content) => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      const response = await fetch('http://localhost:8000/api/v1/posts/post', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          content,
+          visibility: 'PUBLIC'
+        })
+      });
+
+      const data = await response.json();
+      
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to post to LinkedIn');
+      }
+
+      // Add success message to chat
+      setMessages(prev => [...prev, {
+        text: `✅ ${data.message || 'Successfully posted to LinkedIn!'}`,
+        isUser: false
+      }]);
+
+    } catch (error) {
+      console.error('Error posting to LinkedIn:', error);
+      setError(error.message || 'Failed to post to LinkedIn');
+      setMessages(prev => [...prev, {
+        text: `❌ ${error.message || 'Failed to post to LinkedIn'}`,
+        isUser: false
+      }]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleLinkedInLogin = () => {
+    window.location.href = 'http://localhost:8000/api/v1/auth/linkedin/login';
+  };
+
   return (
     <ChatContainer>
       <ChatHeader>
         <ChatTitle>LinkedIn Post Generator</ChatTitle>
-        <ChatSubtitle>Create engaging LinkedIn posts with AI assistance</ChatSubtitle>
+        <ChatSubtitle>Create and post engaging LinkedIn content with AI assistance</ChatSubtitle>
+        {!isAuthenticated && (
+          <LoginButton
+            onClick={handleLinkedInLogin}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+          >
+            Login with LinkedIn
+          </LoginButton>
+        )}
       </ChatHeader>
 
       <MessagesContainer>
@@ -206,6 +306,18 @@ const ChatInterface = () => {
               transition={{ duration: 0.2 }}
             >
               {message.text}
+              {!message.isUser && message.text.length > 50 && (
+                <MessageActions>
+                  <PostButton
+                    onClick={() => handlePostToLinkedIn(message.text)}
+                    disabled={isLoading}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    Post to LinkedIn
+                  </PostButton>
+                </MessageActions>
+              )}
             </Message>
           ))}
         </AnimatePresence>
