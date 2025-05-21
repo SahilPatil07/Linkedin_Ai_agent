@@ -120,5 +120,5 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 ---
 
 <div align="center">
-Made with ❤️ by [Your Name]
+Made with ❤️ by [Sahil Patil]
 </div> 
